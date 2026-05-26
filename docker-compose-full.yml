@@ -1,0 +1,374 @@
+# Complete Lakehouse Platform with Polaris Catalog, OpenMetadata, SeaweedFS, and Mage.ai
+# 
+# This docker-compose file deploys:
+# - SeaweedFS: S3-compatible object storage for Iceberg data
+# - Polaris Catalog: Apache Iceberg REST catalog (replaces Unity Catalog)
+# - OpenMetadata: Data governance, lineage, and catalog management
+# - Apache Spark: Distributed processing engine
+# - Mage.ai: Modern data pipeline orchestration
+# - PostgreSQL: Metadata storage for catalogs and OpenMetadata
+#
+# Usage:
+#   docker compose -f docker-compose-full.yml up -d
+#
+# Services available:
+#   - SeaweedFS S3: http://localhost:8333 (admin/admin)
+#   - Polaris Catalog: http://localhost:8100
+#   - OpenMetadata: http://localhost:8585
+#   - Spark Master UI: http://localhost:8080
+#   - Jupyter Lab: http://localhost:8888
+#   - Mage.ai: http://localhost:6789
+
+services:
+  # =============================================================================
+  # SeaweedFS - S3-compatible Object Storage
+  # =============================================================================
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: seaweedfs
+    ports:
+      - "8333:8333"  # S3 API
+      - "9333:9333"  # Filer UI
+      - "8888:8888"  # Master UI
+    environment:
+      - WEED_MASTER_VOLUME_GROWTH_COPY_1=7
+      - WEED_MASTER_VOLUME_GROWTH_COPY_2=6
+      - WEED_MASTER_VOLUME_GROWTH_COPY_3=5
+    command: >
+      server
+      -s3
+      -s3.port=8333
+      -dir=/data
+      -volume.max=100
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8333"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # PostgreSQL - Metadata Database for Polaris & OpenMetadata
+  # =============================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./config/postgres/init-scripts:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Polaris Catalog - Apache Iceberg REST Catalog
+  # =============================================================================
+  polaris-catalog:
+    image: apache/polaris-server:latest
+    container_name: polaris-catalog
+    ports:
+      - "8100:8100"  # REST API
+    environment:
+      - POLARIS_AUTHENTICATION_PROVIDER=simple
+      - POLARIS_AUTHENTICATION_SIMPLE_PRINCIPAL=admin
+      - POLARIS_STORAGE_CREDENTIALS_S3_ACCESS_KEY=${S3_ACCESS_KEY:-admin}
+      - POLARIS_STORAGE_CREDENTIALS_S3_SECRET_KEY=${S3_SECRET_KEY:-admin123}
+      - POLARIS_STORAGE_CREDENTIALS_S3_ENDPOINT=http://seaweedfs:8333
+      - POLARIS_STORAGE_CREDENTIALS_S3_PATH_STYLE_ACCESS=true
+      - POLARIS_CATALOG_SEED_CATALOGS=lakehouse
+      - POLARIS_SERVER_URL=http://localhost:8100
+      - QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://postgres:5432/polaris_catalog
+      - QUARKUS_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
+      - QUARKUS_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-admin123}
+      - QUARKUS_HTTP_PORT=8100
+    volumes:
+      - ./config/polaris:/etc/polaris:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/api/management/v1/catalogs"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # OpenMetadata - Data Governance & Lineage
+  # =============================================================================
+  openmetadata:
+    image: openmetadata/server:1.8.0
+    container_name: openmetadata
+    ports:
+      - "8585:8585"
+    environment:
+      - OM_CONF_DIR=/openmetadata/conf
+      - OM_LOGS_DIR=/openmetadata/logs
+      - OPENMETADATA_SERVER_PORT=8585
+      - OPENMETADATA_SERVER_HOST=0.0.0.0
+      - AUTHORIZER_CLASS_NAME=com.openmetadata.server.security.authorizer.NoopAuthorizer
+      - AUTHORIZER_CONTAINER_REQUEST_FILTER_CLASS=com.openmetadata.server.security.filter.NoopContainerRequestFilter
+      - PIPELINE_SERVICE_CLIENT_CLASS=com.openmetadata.connectors.pipeline.airflow.client.AirflowRestClient
+      # Database configuration
+      - DB_DRIVER_CLASS=org.postgresql.Driver
+      - DB_URL=jdbc:postgresql://postgres:5432/openmetadata_db
+      - DB_USER=${POSTGRES_USER:-admin}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-admin123}
+      # Search configuration (using simple in-memory search for demo)
+      - SEARCH_TYPE=simple
+      # Event monitoring
+      - EVENT_MONITOR_NAME=prometheus
+      # Email configuration (optional)
+      - SMTP_AUTH=false
+      - SMTP_STARTTLS_ENABLE=false
+    volumes:
+      - openmetadata-logs:/openmetadata/logs
+      - openmetadata-data:/openmetadata/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8585/api/v1/system/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Apache Spark - Distributed Processing
+  # =============================================================================
+  spark-master:
+    image: apache/spark:4.0.1-scala2.13-java17-python3-r-ubuntu
+    container_name: spark-master
+    hostname: spark-master
+    network_mode: "host"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - /data/spark:/opt/spark-data
+      - ./config/spark:/opt/spark/conf
+      - ./notebooks:/notebooks
+      - ./jars:/opt/spark/jars-extra
+      - ./scripts:/scripts
+      - ./data:/data
+    command: >
+      bash -c "
+        /opt/spark/sbin/start-master.sh &&
+        tail -f /opt/spark/logs/*
+      "
+    depends_on:
+      - seaweedfs
+      - polaris-catalog
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  spark-worker:
+    image: apache/spark:4.0.1-scala2.13-java17-python3-r-ubuntu
+    container_name: spark-worker
+    network_mode: "host"
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_CORES=4
+      - SPARK_WORKER_MEMORY=16g
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - /data/spark:/opt/spark-data
+      - ./config/spark:/opt/spark/conf
+      - ./jars:/opt/spark/jars-extra
+      - ./scripts:/scripts
+      - ./data:/data
+    depends_on:
+      - spark-master
+    command: >
+      bash -c "
+        /opt/spark/sbin/start-worker.sh spark://localhost:7077 &&
+        tail -f /opt/spark/logs/*
+      "
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Jupyter Lab - Interactive Development
+  # =============================================================================
+  jupyter:
+    image: jupyter/pyspark-notebook:x86_64-latest
+    container_name: jupyter
+    network_mode: "host"
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - SPARK_MASTER=spark://spark-master:7077
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./config/spark:/opt/spark/conf
+    depends_on:
+      - spark-master
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Mage.ai - Data Pipeline Orchestration
+  # =============================================================================
+  mage-init:
+    build:
+      context: .
+      dockerfile: docker/mage/Dockerfile
+    container_name: mage-init
+    network_mode: "host"
+    environment:
+      - ENV=production
+      - MAGE_CODE_PATH=/home/src
+      - MAGE_DATA_DIR=/opt/mage/data
+      - SPARK_MASTER=spark://localhost:7077
+      - SPARK_HOME=/opt/spark
+      - KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - DB_CONNECTION_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin123}@localhost:5432/mage_data
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - ./mage_projects:/home/src
+      - ./logs/mage:/opt/mage/logs
+      - ./scripts:/home/src/scripts
+      - ./jars:/home/src/jars
+      - ./data:/home/src/data
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        echo "Initializing Mage.ai..."
+        PGPASSWORD=${POSTGRES_PASSWORD:-admin123} psql -h localhost -U ${POSTGRES_USER:-admin} -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'mage_data'" | grep -q 1 || \
+        PGPASSWORD=${POSTGRES_PASSWORD:-admin123} psql -h localhost -U ${POSTGRES_USER:-admin} -d postgres -c "CREATE DATABASE mage_data"
+        echo "Mage initialization complete"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - lakehouse-network
+
+  mage-api:
+    build:
+      context: .
+      dockerfile: docker/mage/Dockerfile
+    container_name: mage-api
+    network_mode: "host"
+    command: mage start /home/src
+    ports:
+      - "6789:6789"
+    environment:
+      - ENV=production
+      - MAGE_CODE_PATH=/home/src
+      - MAGE_DATA_DIR=/opt/mage/data
+      - SPARK_MASTER=spark://localhost:7077
+      - SPARK_HOME=/opt/spark
+      - KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - DB_CONNECTION_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin123}@localhost:5432/mage_data
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - ./mage_projects:/home/src
+      - ./logs/mage:/opt/mage/logs
+      - ./scripts:/home/src/scripts
+      - ./jars:/home/src/jars
+      - ./data:/home/src/data
+    depends_on:
+      mage-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:6789/api/v1/pipelines"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - lakehouse-network
+
+  mage-ui:
+    build:
+      context: .
+      dockerfile: docker/mage/Dockerfile
+    container_name: mage-ui
+    network_mode: "host"
+    command: mage ui /home/src
+    ports:
+      - "6790:6790"
+    environment:
+      - ENV=production
+      - MAGE_CODE_PATH=/home/src
+      - MAGE_DATA_DIR=/opt/mage/data
+    volumes:
+      - ./mage_projects:/home/src
+      - ./logs/mage:/opt/mage/logs
+    depends_on:
+      - mage-api
+    restart: unless-stopped
+    networks:
+      - lakehouse-network
+
+volumes:
+  seaweedfs-data:
+    driver: local
+  postgres-data:
+    driver: local
+  openmetadata-logs:
+    driver: local
+  openmetadata-data:
+    driver: local
+
+networks:
+  lakehouse-network:
+    driver: bridge
