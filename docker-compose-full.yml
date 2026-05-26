@@ -1,0 +1,719 @@
+# Complete Lakehouse Platform with Polaris Catalog, OpenMetadata, SeaweedFS, and Mage.ai
+# 
+# This docker-compose file deploys:
+# - SeaweedFS: S3-compatible object storage for Iceberg data
+# - Polaris Catalog: Apache Iceberg REST catalog (replaces Unity Catalog)
+# - OpenMetadata: Data governance, lineage, and catalog management
+# - OpenMetadata Ingestion: Automated metadata collectors for all data sources
+# - Apache Spark: Distributed processing engine
+# - Mage.ai: Modern data pipeline orchestration
+# - PostgreSQL: Metadata storage for catalogs and OpenMetadata
+# - StarRocks: High-performance OLAP database for fast queries
+# - Trino: Distributed SQL query engine for federated queries
+# - DataEase: Data visualization and BI platform
+#
+# Usage:
+#   docker compose -f docker-compose-full.yml up -d
+#
+# Services available:
+#   - SeaweedFS S3: http://localhost:8333 (admin/admin)
+#   - Polaris Catalog: http://localhost:8100
+#   - OpenMetadata: http://localhost:8585
+#   - Spark Master UI: http://localhost:8080
+#   - Jupyter Lab: http://localhost:8888
+#   - Mage.ai: http://localhost:6789
+#   - StarRocks FE: http://localhost:8030 (HTTP), localhost:9030 (MySQL protocol)
+#   - Trino Coordinator: http://localhost:8088
+#   - DataEase: http://localhost:8081
+#
+# OpenMetadata Ingestion Pipelines:
+#   - Trino Metadata Collector (runs every 6 hours)
+#   - StarRocks Metadata Collector (runs every 6 hours)
+#   - Polaris/Iceberg Metadata Collector (runs every 6 hours)
+#   - Mage Pipeline Metadata Collector (runs every hour)
+#   - Data Quality Test Runner (continuous)
+
+services:
+  # =============================================================================
+  # SeaweedFS - S3-compatible Object Storage
+  # =============================================================================
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: seaweedfs
+    ports:
+      - "8333:8333"  # S3 API
+      - "9333:9333"  # Filer UI
+      - "8888:8888"  # Master UI
+    environment:
+      - WEED_MASTER_VOLUME_GROWTH_COPY_1=7
+      - WEED_MASTER_VOLUME_GROWTH_COPY_2=6
+      - WEED_MASTER_VOLUME_GROWTH_COPY_3=5
+    command: >
+      server
+      -s3
+      -s3.port=8333
+      -dir=/data
+      -volume.max=100
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8333"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - data-net
+    mem_limit: 1g
+    cpus: 1.0
+    restart: unless-stopped
+
+  # =============================================================================
+  # PostgreSQL - Metadata Database for Polaris & OpenMetadata
+  # =============================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./config/postgres/init-scripts:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - data-net
+    mem_limit: 2g
+    cpus: 2.0
+    restart: unless-stopped
+
+  # =============================================================================
+  # Polaris Catalog - Apache Iceberg REST Catalog
+  # =============================================================================
+  polaris-catalog:
+    image: apache/polaris-server:latest
+    container_name: polaris-catalog
+    ports:
+      - "8100:8100"  # REST API
+    environment:
+      - POLARIS_AUTHENTICATION_PROVIDER=simple
+      - POLARIS_AUTHENTICATION_SIMPLE_PRINCIPAL=admin
+      - POLARIS_STORAGE_CREDENTIALS_S3_ACCESS_KEY=${S3_ACCESS_KEY:-admin}
+      - POLARIS_STORAGE_CREDENTIALS_S3_SECRET_KEY=${S3_SECRET_KEY:-admin123}
+      - POLARIS_STORAGE_CREDENTIALS_S3_ENDPOINT=http://seaweedfs:8333
+      - POLARIS_STORAGE_CREDENTIALS_S3_PATH_STYLE_ACCESS=true
+      - POLARIS_CATALOG_SEED_CATALOGS=lakehouse
+      - POLARIS_SERVER_URL=http://localhost:8100
+      - QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://postgres:5432/polaris_catalog
+      - QUARKUS_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
+      - QUARKUS_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-admin123}
+      - QUARKUS_HTTP_PORT=8100
+    volumes:
+      - ./config/polaris:/etc/polaris:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/api/management/v1/catalogs"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  # =============================================================================
+  # OpenMetadata - Data Governance & Lineage
+  # =============================================================================
+  openmetadata:
+    image: openmetadata/server:1.8.0
+    container_name: openmetadata
+    ports:
+      - "8585:8585"
+    environment:
+      - OM_CONF_DIR=/openmetadata/conf
+      - OM_LOGS_DIR=/openmetadata/logs
+      - OPENMETADATA_SERVER_PORT=8585
+      - OPENMETADATA_SERVER_HOST=0.0.0.0
+      - AUTHORIZER_CLASS_NAME=com.openmetadata.server.security.authorizer.NoopAuthorizer
+      - AUTHORIZER_CONTAINER_REQUEST_FILTER_CLASS=com.openmetadata.server.security.filter.NoopContainerRequestFilter
+      - PIPELINE_SERVICE_CLIENT_CLASS=com.openmetadata.connectors.pipeline.airflow.client.AirflowRestClient
+      # Database configuration
+      - DB_DRIVER_CLASS=org.postgresql.Driver
+      - DB_URL=jdbc:postgresql://postgres:5432/openmetadata_db
+      - DB_USER=${POSTGRES_USER:-admin}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-admin123}
+      # Search configuration (using simple in-memory search for demo)
+      - SEARCH_TYPE=simple
+      # Event monitoring
+      - EVENT_MONITOR_NAME=prometheus
+      # Email configuration (optional)
+      - SMTP_AUTH=false
+      - SMTP_STARTTLS_ENABLE=false
+      # Ingestion framework configuration
+      - INGESTION_SCHEDULER_ENABLED=true
+      - INGESTION_SCHEDULER_INTERVAL_MINUTES=60
+    volumes:
+      - openmetadata-logs:/openmetadata/logs
+      - openmetadata-data:/openmetadata/data
+      - ./config/openmetadata/ingestion:/openmetadata/config/ingestion:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8585/api/v1/system/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  # =============================================================================
+  # OpenMetadata Ingestion - Trino Metadata Collector
+  # =============================================================================
+  om-ingestion-trino:
+    image: openmetadata/ingestion:latest
+    container_name: om-ingestion-trino
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+    volumes:
+      - ./config/openmetadata/ingestion/trino.yaml:/openmetadata/ingestion.yaml:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+      trino-coordinator:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for OpenMetadata to be ready...' &&
+        sleep 30 &&
+        echo 'Starting Trino metadata ingestion...' &&
+        metadata ingest -c /openmetadata/ingestion.yaml || true
+      "
+    networks:
+      - dmz-net
+    restart: "no"
+
+  # =============================================================================
+  # OpenMetadata Ingestion - StarRocks Metadata Collector
+  # =============================================================================
+  om-ingestion-starrocks:
+    image: openmetadata/ingestion:latest
+    container_name: om-ingestion-starrocks
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+    volumes:
+      - ./config/openmetadata/ingestion/starrocks.yaml:/openmetadata/ingestion.yaml:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+      starrocks-fe:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for OpenMetadata to be ready...' &&
+        sleep 30 &&
+        echo 'Starting StarRocks metadata ingestion...' &&
+        metadata ingest -c /openmetadata/ingestion.yaml || true
+      "
+    networks:
+      - dmz-net
+    restart: "no"
+
+  # =============================================================================
+  # OpenMetadata Ingestion - Polaris/Iceberg Metadata Collector
+  # =============================================================================
+  om-ingestion-iceberg:
+    image: openmetadata/ingestion:latest
+    container_name: om-ingestion-iceberg
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://seaweedfs:8333
+    volumes:
+      - ./config/openmetadata/ingestion/iceberg.yaml:/openmetadata/ingestion.yaml:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+      polaris-catalog:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for OpenMetadata to be ready...' &&
+        sleep 30 &&
+        echo 'Starting Iceberg metadata ingestion...' &&
+        metadata ingest -c /openmetadata/ingestion.yaml || true
+      "
+    networks:
+      - dmz-net
+    restart: "no"
+
+  # =============================================================================
+  # OpenMetadata Ingestion - Mage Pipeline Metadata Collector
+  # =============================================================================
+  om-ingestion-mage:
+    image: openmetadata/ingestion:latest
+    container_name: om-ingestion-mage
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+    volumes:
+      - ./config/openmetadata/ingestion/mage.yaml:/openmetadata/ingestion.yaml:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+      mage-api:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for OpenMetadata to be ready...' &&
+        sleep 60 &&
+        echo 'Starting Mage pipeline metadata ingestion...' &&
+        metadata ingest -c /openmetadata/ingestion.yaml || true
+      "
+    networks:
+      - dmz-net
+    restart: "no"
+
+  # =============================================================================
+  # OpenMetadata Data Quality Test Runner
+  # =============================================================================
+  om-data-quality:
+    image: openmetadata/ingestion:latest
+    container_name: om-data-quality
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+    volumes:
+      - ./config/openmetadata/tests:/openmetadata/tests:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for services to be ready...' &&
+        sleep 90 &&
+        echo 'Starting continuous data quality tests...' &&
+        while true; do
+          metadata ingest -c /openmetadata/tests/test-runner.yaml || true
+          sleep 3600
+        done
+      "
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  # =============================================================================
+  # Apache Spark - Distributed Processing
+  # =============================================================================
+  spark-master:
+    image: apache/spark:4.0.1-scala2.13-java17-python3-r-ubuntu
+    container_name: spark-master
+    hostname: spark-master
+    network_mode: "host"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - /data/spark:/opt/spark-data
+      - ./config/spark:/opt/spark/conf
+      - ./notebooks:/notebooks
+      - ./jars:/opt/spark/jars-extra
+      - ./scripts:/scripts
+      - ./data:/data
+    command: >
+      bash -c "
+        /opt/spark/sbin/start-master.sh &&
+        tail -f /opt/spark/logs/*
+      "
+    depends_on:
+      - seaweedfs
+      - polaris-catalog
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  spark-worker:
+    image: apache/spark:4.0.1-scala2.13-java17-python3-r-ubuntu
+    container_name: spark-worker
+    network_mode: "host"
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_CORES=4
+      - SPARK_WORKER_MEMORY=16g
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - /data/spark:/opt/spark-data
+      - ./config/spark:/opt/spark/conf
+      - ./jars:/opt/spark/jars-extra
+      - ./scripts:/scripts
+      - ./data:/data
+    depends_on:
+      - spark-master
+    command: >
+      bash -c "
+        /opt/spark/sbin/start-worker.sh spark://localhost:7077 &&
+        tail -f /opt/spark/logs/*
+      "
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  # =============================================================================
+  # Jupyter Lab - Interactive Development
+  # =============================================================================
+  jupyter:
+    image: jupyter/pyspark-notebook:x86_64-latest
+    container_name: jupyter
+    network_mode: "host"
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - SPARK_MASTER=spark://spark-master:7077
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./config/spark:/opt/spark/conf
+    depends_on:
+      - spark-master
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  # =============================================================================
+  # Mage.ai - Data Pipeline Orchestration
+  # =============================================================================
+  mage-init:
+    build:
+      context: .
+      dockerfile: docker/mage/Dockerfile
+    container_name: mage-init
+    network_mode: "host"
+    environment:
+      - ENV=production
+      - MAGE_CODE_PATH=/home/src
+      - MAGE_DATA_DIR=/opt/mage/data
+      - SPARK_MASTER=spark://localhost:7077
+      - SPARK_HOME=/opt/spark
+      - KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - DB_CONNECTION_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin123}@localhost:5432/mage_data
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - ./mage_projects:/home/src
+      - ./logs/mage:/opt/mage/logs
+      - ./scripts:/home/src/scripts
+      - ./jars:/home/src/jars
+      - ./data:/home/src/data
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        echo "Initializing Mage.ai..."
+        PGPASSWORD=${POSTGRES_PASSWORD:-admin123} psql -h localhost -U ${POSTGRES_USER:-admin} -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'mage_data'" | grep -q 1 || \
+        PGPASSWORD=${POSTGRES_PASSWORD:-admin123} psql -h localhost -U ${POSTGRES_USER:-admin} -d postgres -c "CREATE DATABASE mage_data"
+        echo "Mage initialization complete"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - dmz-net
+
+  mage-api:
+    build:
+      context: .
+      dockerfile: docker/mage/Dockerfile
+    container_name: mage-api
+    network_mode: "host"
+    command: mage start /home/src
+    ports:
+      - "6789:6789"
+    environment:
+      - ENV=production
+      - MAGE_CODE_PATH=/home/src
+      - MAGE_DATA_DIR=/opt/mage/data
+      - SPARK_MASTER=spark://localhost:7077
+      - SPARK_HOME=/opt/spark
+      - KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://localhost:8333
+      - DB_CONNECTION_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin123}@localhost:5432/mage_data
+      - ICEBERG_CATALOG_URI=http://localhost:8100
+      - ICEBERG_WAREHOUSE=s3a://lakehouse/warehouse
+    volumes:
+      - ./mage_projects:/home/src
+      - ./logs/mage:/opt/mage/logs
+      - ./scripts:/home/src/scripts
+      - ./jars:/home/src/jars
+      - ./data:/home/src/data
+    depends_on:
+      mage-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:6789/api/v1/pipelines"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - dmz-net
+
+  mage-ui:
+    build:
+      context: .
+      dockerfile: docker/mage/Dockerfile
+    container_name: mage-ui
+    network_mode: "host"
+    command: mage ui /home/src
+    ports:
+      - "6790:6790"
+    environment:
+      - ENV=production
+      - MAGE_CODE_PATH=/home/src
+      - MAGE_DATA_DIR=/opt/mage/data
+    volumes:
+      - ./mage_projects:/home/src
+      - ./logs/mage:/opt/mage/logs
+    depends_on:
+      - mage-api
+    restart: unless-stopped
+    networks:
+      - dmz-net
+
+  # =============================================================================
+  # StarRocks - High-Performance OLAP Database
+  # =============================================================================
+  starrocks-fe:
+    image: starrocks/fe-ubuntu:latest
+    container_name: starrocks-fe
+    hostname: starrocks-fe
+    ports:
+      - "8030:8030"  # HTTP port
+      - "9020:9020"  # RPC port
+      - "9030:9030"  # MySQL protocol port
+    environment:
+      - FE_SERVERS=fe1:starrocks-fe:9010
+      - FE_ID=1
+    volumes:
+      - starrocks-fe-meta:/opt/starrocks/fe/meta
+      - starrocks-fe-log:/opt/starrocks/fe/log
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/api/bootstrap"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  starrocks-be:
+    image: starrocks/be-ubuntu:latest
+    container_name: starrocks-be
+    hostname: starrocks-be
+    ports:
+      - "8040:8040"  # Web server port
+      - "9050:9050"  # BE RPC port
+      - "9060:9060"  # Heartbeat port
+    environment:
+      - FE_SERVERS=fe1:starrocks-fe:9010
+      - BE_SERVERS=be1:starrocks-be:9050
+    volumes:
+      - starrocks-be-storage:/opt/starrocks/be/storage
+      - starrocks-be-log:/opt/starrocks/be/log
+    depends_on:
+      starrocks-fe:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8040/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  # =============================================================================
+  # Trino - Distributed SQL Query Engine
+  # =============================================================================
+  trino-coordinator:
+    image: trinodb/trino:latest
+    container_name: trino-coordinator
+    hostname: trino-coordinator
+    ports:
+      - "8088:8080"  # Trino UI and API
+    volumes:
+      - ./config/trino/coordinator:/etc/trino:ro
+    environment:
+      - TRINO_HEAP_SIZE=2G
+    healthcheck:
+      test: ["CMD", "trino", "--server", "http://localhost:8080", "--execute", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  trino-worker:
+    image: trinodb/trino:latest
+    container_name: trino-worker
+    hostname: trino-worker
+    volumes:
+      - ./config/trino/worker:/etc/trino:ro
+    environment:
+      - TRINO_HEAP_SIZE=4G
+    depends_on:
+      trino-coordinator:
+        condition: service_healthy
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  # =============================================================================
+  # DataEase - Data Visualization & BI Platform
+  # =============================================================================
+  dataease:
+    image: dataease/dataease:v2.9.0
+    container_name: dataease
+    hostname: dataease
+    ports:
+      - "8081:8080"  # Web UI
+    environment:
+      - DE_MYSQL_HOST=mysql
+      - DE_MYSQL_PORT=3306
+      - DE_MYSQL_DB=dataease
+      - DE_MYSQL_USER=root
+      - DE_MYSQL_PASSWORD=dataease@123456
+      - DE_MINIO_ENDPOINT=minio:9000
+      - DE_MINIO_ACCESS_KEY=minioadmin
+      - DE_MINIO_SECRET_KEY=minioadmin
+      - DE_K8S_NAMESPACE=dataease
+    volumes:
+      - dataease-data:/opt/dataease2.0/data
+    depends_on:
+      - mysql
+      - minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  # MySQL for DataEase
+  mysql:
+    image: mysql:8.0
+    container_name: dataease-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: dataease@123456
+      MYSQL_DATABASE: dataease
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+  # MinIO for DataEase
+  minio:
+    image: minio/minio:latest
+    container_name: dataease-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - dmz-net
+    restart: unless-stopped
+
+volumes:
+  seaweedfs-data:
+    driver: local
+  postgres-data:
+    driver: local
+  openmetadata-logs:
+    driver: local
+  openmetadata-data:
+    driver: local
+  starrocks-fe-meta:
+    driver: local
+  starrocks-fe-log:
+    driver: local
+  starrocks-be-storage:
+    driver: local
+  starrocks-be-log:
+    driver: local
+  dataease-data:
+    driver: local
+  mysql-data:
+    driver: local
+  minio-data:
+    driver: local
+  loki-data:
+    driver: local
+  backup-storage:
+    driver: local
+
+networks:
+  dmz-net:
+    driver: bridge
+    labels:
+      description: "DMZ Network - Public facing services"
+  compute-net:
+    driver: bridge
+    labels:
+      description: "Compute Network - Processing engines"
+  data-net:
+    driver: bridge
+    internal: true
+    labels:
+      description: "Data Network - Internal storage only"

@@ -1,0 +1,42 @@
+{
+  "blocks": [
+    {
+      "uuid": "check_kafka",
+      "name": "Check Kafka Availability",
+      "type": "sensor",
+      "content": "check_kafka.py",
+      "downstream_blocks": ["choose_spark"]
+    },
+    {
+      "uuid": "choose_spark",
+      "name": "Choose Spark Version",
+      "type": "transformer",
+      "content": "choose_spark.py",
+      "downstream_blocks": ["run_pipeline_spark41", "run_pipeline_spark40"]
+    },
+    {
+      "uuid": "run_pipeline_spark41",
+      "name": "Run Pipeline Spark 4.1",
+      "type": "data_exporter",
+      "content": "run_pipeline_spark41.py",
+      "downstream_blocks": ["verify_tables"]
+    },
+    {
+      "uuid": "run_pipeline_spark40",
+      "name": "Run Pipeline Spark 4.0",
+      "type": "data_exporter",
+      "content": "run_pipeline_spark40.py",
+      "downstream_blocks": ["verify_tables"]
+    },
+    {
+      "uuid": "verify_tables",
+      "name": "Verify Tables",
+      "type": "data_loader",
+      "content": "verify_tables.py",
+      "downstream_blocks": []
+    }
+  ],
+  "tags": ["lakehouse", "iceberg", "spark"],
+  "type": "python",
+  "uuid": "lakehouse_medallion_pipeline"
+}

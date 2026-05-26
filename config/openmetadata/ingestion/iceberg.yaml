@@ -1,0 +1,64 @@
+# OpenMetadata Ingestion Configuration for Apache Iceberg (via Polaris Catalog)
+# Collects metadata, schemas, tables, columns, and lineage from Iceberg tables
+
+source:
+  type: iceberg
+  serviceName: iceberg-lakehouse
+  serviceDefinition:
+    connection:
+      catalogName: lakehouse
+      uri: http://polaris-catalog:8100
+      warehouse: s3a://lakehouse/warehouse
+      config:
+        - key: io-impl
+          value: org.apache.iceberg.aws.s3.S3FileIO
+        - key: s3.endpoint
+          value: http://seaweedfs:8333
+        - key: s3.path.style.access
+          value: "true"
+        - key: s3.access.key.id
+          value: admin
+        - key: s3.secret.access.key
+          value: admin123
+  includeTables: true
+  includeViews: false
+  tableFilterPattern: ".*"
+  schemaFilterPattern: ".*"
+
+sink:
+  type: open-metadata-rest
+  apiEndpoint: http://openmetadata:8585/api
+  securityConfig:
+    jwtToken: default
+
+workflows:
+  mainWorkflow:
+    name: iceberg_metadata_workflow
+    actions:
+      - type: metadata
+        extractors:
+          table:
+            enabled: true
+            useSchemaInformation: true
+            columnLineage: true
+          view:
+            enabled: false
+          dbt:
+            enabled: false
+        classifiers:
+          table:
+            enabled: true
+          column:
+            enabled: true
+          enableAllClassifiers: true
+        profilers:
+          enabled: false
+        computeLineage:
+          enabled: true
+          queryLogDuration: 7
+          queryLimit: 1000
+        dataTests:
+          enabled: true
+          runDataQualityTests: true
+          testConnection: true
+          checkTestDefinition: true

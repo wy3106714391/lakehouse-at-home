@@ -1,0 +1,57 @@
+# OpenMetadata Ingestion Configuration for Trino
+# Collects metadata, schemas, tables, columns, and lineage from Trino
+
+source:
+  type: trino
+  serviceName: trino-lakehouse
+  serviceDefinition:
+    connection:
+      host: trino-coordinator
+      port: 8080
+      username: admin
+      password: ""
+      catalog: lakehouse
+      schema: public
+  includeTables: true
+  includeViews: true
+  includeSchemas: true
+  tableFilterPattern: ".*"
+  schemaFilterPattern: ".*"
+
+sink:
+  type: open-metadata-rest
+  apiEndpoint: http://openmetadata:8585/api
+  securityConfig:
+    jwtToken: default
+
+workflows:
+  mainWorkflow:
+    name: trino_metadata_workflow
+    actions:
+      - type: metadata
+        extractors:
+          table:
+            enabled: true
+            useSchemaInformation: true
+            columnLineage: true
+          view:
+            enabled: true
+          dbt:
+            enabled: false
+        classifiers:
+          table:
+            enabled: true
+          column:
+            enabled: true
+          enableAllClassifiers: true
+        profilers:
+          enabled: false
+        computeLineage:
+          enabled: true
+          queryLogDuration: 7
+          queryLimit: 1000
+        dataTests:
+          enabled: true
+          runDataQualityTests: true
+          testConnection: true
+          checkTestDefinition: true

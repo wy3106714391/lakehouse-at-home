@@ -1,0 +1,7 @@
+{
+  "project_uuid": "lakehouse_pipelines",
+  "project_name": "Lakehouse Pipelines",
+  "project_type": "standard",
+  "variables_dir": "/home/src/.mage_variables",
+  "help_improve_mage": false
+}

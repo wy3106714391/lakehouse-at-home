@@ -1,0 +1,35 @@
+{
+  "blocks": [
+    {
+      "uuid": "check_spark",
+      "name": "Check Spark Cluster",
+      "type": "sensor",
+      "content": "check_spark.py",
+      "downstream_blocks": ["expire_snapshots", "remove_orphans", "compact_files"]
+    },
+    {
+      "uuid": "expire_snapshots",
+      "name": "Expire Old Snapshots",
+      "type": "data_exporter",
+      "content": "expire_snapshots.py",
+      "downstream_blocks": ["remove_orphans"]
+    },
+    {
+      "uuid": "remove_orphans",
+      "name": "Remove Orphan Files",
+      "type": "data_exporter",
+      "content": "remove_orphans.py",
+      "downstream_blocks": ["compact_files"]
+    },
+    {
+      "uuid": "compact_files",
+      "name": "Compact Small Files",
+      "type": "data_exporter",
+      "content": "compact_files.py",
+      "downstream_blocks": []
+    }
+  ],
+  "tags": ["lakehouse", "iceberg", "maintenance"],
+  "type": "python",
+  "uuid": "iceberg_maintenance"
+}

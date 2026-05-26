@@ -1,0 +1,43 @@
+# OpenMetadata Ingestion Configuration for Mage.ai Pipelines
+# Collects pipeline metadata, DAG structure, and execution lineage
+
+source:
+  type: mage
+  serviceName: mage-pipelines
+  serviceDefinition:
+    connection:
+      host: mage-api
+      port: 6789
+      apiVersion: v1
+  includePipelines: true
+  includeBlocks: true
+  pipelineFilterPattern: ".*"
+
+sink:
+  type: open-metadata-rest
+  apiEndpoint: http://openmetadata:8585/api
+  securityConfig:
+    jwtToken: default
+
+workflows:
+  mainWorkflow:
+    name: mage_pipeline_workflow
+    actions:
+      - type: metadata
+        extractors:
+          pipeline:
+            enabled: true
+            includeTasks: true
+            includeDependencies: true
+        classifiers:
+          pipeline:
+            enabled: true
+          enableAllClassifiers: true
+        computeLineage:
+          enabled: true
+          trackPipelineRuns: true
+        dataTests:
+          enabled: true
+          runDataQualityTests: true
+          testConnection: true
+          checkTestDefinition: true

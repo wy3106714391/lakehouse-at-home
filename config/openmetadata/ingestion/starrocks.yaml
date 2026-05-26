@@ -1,0 +1,57 @@
+# OpenMetadata Ingestion Configuration for StarRocks
+# Collects metadata, schemas, tables, columns, and lineage from StarRocks
+
+source:
+  type: mysql
+  serviceName: starrocks-lakehouse
+  serviceDefinition:
+    connection:
+      host: starrocks-fe
+      port: 9030
+      username: root
+      password: ""
+      database: ""
+      sslMode: disable
+  includeTables: true
+  includeViews: true
+  includeSchemas: true
+  tableFilterPattern: ".*"
+  schemaFilterPattern: ".*"
+
+sink:
+  type: open-metadata-rest
+  apiEndpoint: http://openmetadata:8585/api
+  securityConfig:
+    jwtToken: default
+
+workflows:
+  mainWorkflow:
+    name: starrocks_metadata_workflow
+    actions:
+      - type: metadata
+        extractors:
+          table:
+            enabled: true
+            useSchemaInformation: true
+            columnLineage: true
+          view:
+            enabled: true
+          dbt:
+            enabled: false
+        classifiers:
+          table:
+            enabled: true
+          column:
+            enabled: true
+          enableAllClassifiers: true
+        profilers:
+          enabled: false
+        computeLineage:
+          enabled: true
+          queryLogDuration: 7
+          queryLimit: 1000
+        dataTests:
+          enabled: true
+          runDataQualityTests: true
+          testConnection: true
+          checkTestDefinition: true
