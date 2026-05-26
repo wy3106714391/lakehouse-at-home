@@ -1,71 +1,71 @@
-# Credentials and Secrets
-config/spark/spark-defaults.conf
-config/spark/spark-defaults-uc.conf
-config/unity-catalog/server.properties
+```
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+dist/
+build/
+target/
+.gradle/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
 .env
-.env.*
-!.env.example
-credentials.env
-**/credentials*.env
-*.key
-*.pem
-*.p12
-*.pfx
-*.crt
-*.cer
-.secrets.baseline
-**/secrets/
-**/.secrets/
+.env.local
+*.env.*
 
-# AWS credentials
-.aws/
-aws-credentials*
-
-# JAR files (use scripts/download-jars.sh to get files)
-jars/*.jar
-
-# data directories
-/data/
-
-# IDE
+# Editors
 .vscode/
 .idea/
 
-# vim swap files
-*.swo
-*.swp
-
-# Python
-__pycache__/
-*.pyc
-.ipynb_checkpoints/
-.venv/
-
-# Loose JAR files at root (should be in jars/)
-/*.jar
-
-# Spark
-spark-warehouse/
-metastore_db/
-derby.log
-
-# OS
+# System
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-logs/
-*.swo
-*.swp
+# Compiled files
+*.pyc
+*.class
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.obj
+*.out
 
-# Airflow
-logs/airflow/
-dags/__pycache__/
+# Coverage
+coverage/
+htmlcov/
+.coverage
 
-# Terraform
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.backup
-terraform/.terraform.lock.hcl
-terraform/terraform.tfvars
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+```
