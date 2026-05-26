@@ -4,6 +4,7 @@
 # - SeaweedFS: S3-compatible object storage for Iceberg data
 # - Polaris Catalog: Apache Iceberg REST catalog (replaces Unity Catalog)
 # - OpenMetadata: Data governance, lineage, and catalog management
+# - OpenMetadata Ingestion: Automated metadata collectors for all data sources
 # - Apache Spark: Distributed processing engine
 # - Mage.ai: Modern data pipeline orchestration
 # - PostgreSQL: Metadata storage for catalogs and OpenMetadata
@@ -24,6 +25,13 @@
 #   - StarRocks FE: http://localhost:8030 (HTTP), localhost:9030 (MySQL protocol)
 #   - Trino Coordinator: http://localhost:8088
 #   - DataEase: http://localhost:8081
+#
+# OpenMetadata Ingestion Pipelines:
+#   - Trino Metadata Collector (runs every 6 hours)
+#   - StarRocks Metadata Collector (runs every 6 hours)
+#   - Polaris/Iceberg Metadata Collector (runs every 6 hours)
+#   - Mage Pipeline Metadata Collector (runs every hour)
+#   - Data Quality Test Runner (continuous)
 
 services:
   # =============================================================================
@@ -149,9 +157,13 @@ services:
       # Email configuration (optional)
       - SMTP_AUTH=false
       - SMTP_STARTTLS_ENABLE=false
+      # Ingestion framework configuration
+      - INGESTION_SCHEDULER_ENABLED=true
+      - INGESTION_SCHEDULER_INTERVAL_MINUTES=60
     volumes:
       - openmetadata-logs:/openmetadata/logs
       - openmetadata-data:/openmetadata/data
+      - ./config/openmetadata/ingestion:/openmetadata/config/ingestion:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -161,6 +173,147 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # OpenMetadata Ingestion - Trino Metadata Collector
+  # =============================================================================
+  om-ingestion-trino:
+    image: openmetadata/ingestion:latest
+    container_name: om-ingestion-trino
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+    volumes:
+      - ./config/openmetadata/ingestion/trino.yaml:/openmetadata/ingestion.yaml:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+      trino-coordinator:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for OpenMetadata to be ready...' &&
+        sleep 30 &&
+        echo 'Starting Trino metadata ingestion...' &&
+        metadata ingest -c /openmetadata/ingestion.yaml || true
+      "
+    networks:
+      - lakehouse-network
+    restart: "no"
+
+  # =============================================================================
+  # OpenMetadata Ingestion - StarRocks Metadata Collector
+  # =============================================================================
+  om-ingestion-starrocks:
+    image: openmetadata/ingestion:latest
+    container_name: om-ingestion-starrocks
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+    volumes:
+      - ./config/openmetadata/ingestion/starrocks.yaml:/openmetadata/ingestion.yaml:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+      starrocks-fe:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for OpenMetadata to be ready...' &&
+        sleep 30 &&
+        echo 'Starting StarRocks metadata ingestion...' &&
+        metadata ingest -c /openmetadata/ingestion.yaml || true
+      "
+    networks:
+      - lakehouse-network
+    restart: "no"
+
+  # =============================================================================
+  # OpenMetadata Ingestion - Polaris/Iceberg Metadata Collector
+  # =============================================================================
+  om-ingestion-iceberg:
+    image: openmetadata/ingestion:latest
+    container_name: om-ingestion-iceberg
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:-admin}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:-admin123}
+      - AWS_ENDPOINT_URL=http://seaweedfs:8333
+    volumes:
+      - ./config/openmetadata/ingestion/iceberg.yaml:/openmetadata/ingestion.yaml:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+      polaris-catalog:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for OpenMetadata to be ready...' &&
+        sleep 30 &&
+        echo 'Starting Iceberg metadata ingestion...' &&
+        metadata ingest -c /openmetadata/ingestion.yaml || true
+      "
+    networks:
+      - lakehouse-network
+    restart: "no"
+
+  # =============================================================================
+  # OpenMetadata Ingestion - Mage Pipeline Metadata Collector
+  # =============================================================================
+  om-ingestion-mage:
+    image: openmetadata/ingestion:latest
+    container_name: om-ingestion-mage
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+    volumes:
+      - ./config/openmetadata/ingestion/mage.yaml:/openmetadata/ingestion.yaml:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+      mage-api:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for OpenMetadata to be ready...' &&
+        sleep 60 &&
+        echo 'Starting Mage pipeline metadata ingestion...' &&
+        metadata ingest -c /openmetadata/ingestion.yaml || true
+      "
+    networks:
+      - lakehouse-network
+    restart: "no"
+
+  # =============================================================================
+  # OpenMetadata Data Quality Test Runner
+  # =============================================================================
+  om-data-quality:
+    image: openmetadata/ingestion:latest
+    container_name: om-data-quality
+    environment:
+      - OM_SERVER_ENDPOINT=http://openmetadata:8585/api
+      - OM_API_KEY=default
+    volumes:
+      - ./config/openmetadata/tests:/openmetadata/tests:ro
+    depends_on:
+      openmetadata:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for services to be ready...' &&
+        sleep 90 &&
+        echo 'Starting continuous data quality tests...' &&
+        while true; do
+          metadata ingest -c /openmetadata/tests/test-runner.yaml || true
+          sleep 3600
+        done
+      "
     networks:
       - lakehouse-network
     restart: unless-stopped

@@ -1,0 +1,49 @@
+# OpenMetadata Data Quality Test Runner Configuration
+# Executes data quality tests defined in OpenMetadata on a scheduled basis
+
+source:
+  type: openmetadata-test-runner
+  serviceName: om-test-runner
+  serviceDefinition:
+    connection:
+      host: openmetadata
+      port: 8585
+      apiVersion: v1
+  testConfig:
+    runAllTests: true
+    includeCriticalTests: true
+    includeWarningTests: true
+    failOnCritical: false
+    failOnWarning: false
+
+sink:
+  type: open-metadata-rest
+  apiEndpoint: http://openmetadata:8585/api
+  securityConfig:
+    jwtToken: default
+
+workflows:
+  mainWorkflow:
+    name: data_quality_test_runner
+    actions:
+      - type: data-quality
+        testRunner:
+          enabled: true
+          runSuiteTests: true
+          runIndividualTests: true
+          storeResults: true
+          notifyOnFailure: true
+          maxRetries: 3
+          retryDelay: 60
+        notifications:
+          enabled: true
+          channels:
+            - type: slack
+              webhook: ""
+            - type: email
+              recipients: []
+        reporting:
+          enabled: true
+          generateReports: true
+          reportFormat: html
+          storeInMetadata: true
