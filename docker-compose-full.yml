@@ -7,6 +7,9 @@
 # - Apache Spark: Distributed processing engine
 # - Mage.ai: Modern data pipeline orchestration
 # - PostgreSQL: Metadata storage for catalogs and OpenMetadata
+# - StarRocks: High-performance OLAP database for fast queries
+# - Trino: Distributed SQL query engine for federated queries
+# - DataEase: Data visualization and BI platform
 #
 # Usage:
 #   docker compose -f docker-compose-full.yml up -d
@@ -18,6 +21,9 @@
 #   - Spark Master UI: http://localhost:8080
 #   - Jupyter Lab: http://localhost:8888
 #   - Mage.ai: http://localhost:6789
+#   - StarRocks FE: http://localhost:8030 (HTTP), localhost:9030 (MySQL protocol)
+#   - Trino Coordinator: http://localhost:8088
+#   - DataEase: http://localhost:8081
 
 services:
   # =============================================================================
@@ -359,6 +365,159 @@ services:
     networks:
       - lakehouse-network
 
+  # =============================================================================
+  # StarRocks - High-Performance OLAP Database
+  # =============================================================================
+  starrocks-fe:
+    image: starrocks/fe-ubuntu:latest
+    container_name: starrocks-fe
+    hostname: starrocks-fe
+    ports:
+      - "8030:8030"  # HTTP port
+      - "9020:9020"  # RPC port
+      - "9030:9030"  # MySQL protocol port
+    environment:
+      - FE_SERVERS=fe1:starrocks-fe:9010
+      - FE_ID=1
+    volumes:
+      - starrocks-fe-meta:/opt/starrocks/fe/meta
+      - starrocks-fe-log:/opt/starrocks/fe/log
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/api/bootstrap"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  starrocks-be:
+    image: starrocks/be-ubuntu:latest
+    container_name: starrocks-be
+    hostname: starrocks-be
+    ports:
+      - "8040:8040"  # Web server port
+      - "9050:9050"  # BE RPC port
+      - "9060:9060"  # Heartbeat port
+    environment:
+      - FE_SERVERS=fe1:starrocks-fe:9010
+      - BE_SERVERS=be1:starrocks-be:9050
+    volumes:
+      - starrocks-be-storage:/opt/starrocks/be/storage
+      - starrocks-be-log:/opt/starrocks/be/log
+    depends_on:
+      starrocks-fe:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8040/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Trino - Distributed SQL Query Engine
+  # =============================================================================
+  trino-coordinator:
+    image: trinodb/trino:latest
+    container_name: trino-coordinator
+    hostname: trino-coordinator
+    ports:
+      - "8088:8080"  # Trino UI and API
+    volumes:
+      - ./config/trino/coordinator:/etc/trino:ro
+    environment:
+      - TRINO_HEAP_SIZE=2G
+    healthcheck:
+      test: ["CMD", "trino", "--server", "http://localhost:8080", "--execute", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  trino-worker:
+    image: trinodb/trino:latest
+    container_name: trino-worker
+    hostname: trino-worker
+    volumes:
+      - ./config/trino/worker:/etc/trino:ro
+    environment:
+      - TRINO_HEAP_SIZE=4G
+    depends_on:
+      trino-coordinator:
+        condition: service_healthy
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # DataEase - Data Visualization & BI Platform
+  # =============================================================================
+  dataease:
+    image: dataease/dataease:v2.9.0
+    container_name: dataease
+    hostname: dataease
+    ports:
+      - "8081:8080"  # Web UI
+    environment:
+      - DE_MYSQL_HOST=mysql
+      - DE_MYSQL_PORT=3306
+      - DE_MYSQL_DB=dataease
+      - DE_MYSQL_USER=root
+      - DE_MYSQL_PASSWORD=dataease@123456
+      - DE_MINIO_ENDPOINT=minio:9000
+      - DE_MINIO_ACCESS_KEY=minioadmin
+      - DE_MINIO_SECRET_KEY=minioadmin
+      - DE_K8S_NAMESPACE=dataease
+    volumes:
+      - dataease-data:/opt/dataease2.0/data
+    depends_on:
+      - mysql
+      - minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # MySQL for DataEase
+  mysql:
+    image: mysql:8.0
+    container_name: dataease-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: dataease@123456
+      MYSQL_DATABASE: dataease
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
+  # MinIO for DataEase
+  minio:
+    image: minio/minio:latest
+    container_name: dataease-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - lakehouse-network
+    restart: unless-stopped
+
 volumes:
   seaweedfs-data:
     driver: local
@@ -367,6 +526,20 @@ volumes:
   openmetadata-logs:
     driver: local
   openmetadata-data:
+    driver: local
+  starrocks-fe-meta:
+    driver: local
+  starrocks-fe-log:
+    driver: local
+  starrocks-be-storage:
+    driver: local
+  starrocks-be-log:
+    driver: local
+  dataease-data:
+    driver: local
+  mysql-data:
+    driver: local
+  minio-data:
     driver: local
 
 networks:
