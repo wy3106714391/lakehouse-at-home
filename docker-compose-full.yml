@@ -63,7 +63,9 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - lakehouse-network
+      - data-net
+    mem_limit: 1g
+    cpus: 1.0
     restart: unless-stopped
 
   # =============================================================================
@@ -88,7 +90,9 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - lakehouse-network
+      - data-net
+    mem_limit: 2g
+    cpus: 2.0
     restart: unless-stopped
 
   # =============================================================================
@@ -126,7 +130,7 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   # =============================================================================
@@ -174,7 +178,7 @@ services:
       retries: 5
       start_period: 60s
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   # =============================================================================
@@ -201,7 +205,7 @@ services:
         metadata ingest -c /openmetadata/ingestion.yaml || true
       "
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: "no"
 
   # =============================================================================
@@ -228,7 +232,7 @@ services:
         metadata ingest -c /openmetadata/ingestion.yaml || true
       "
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: "no"
 
   # =============================================================================
@@ -260,7 +264,7 @@ services:
         metadata ingest -c /openmetadata/ingestion.yaml || true
       "
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: "no"
 
   # =============================================================================
@@ -287,7 +291,7 @@ services:
         metadata ingest -c /openmetadata/ingestion.yaml || true
       "
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: "no"
 
   # =============================================================================
@@ -315,7 +319,7 @@ services:
         done
       "
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   # =============================================================================
@@ -352,7 +356,7 @@ services:
       - seaweedfs
       - polaris-catalog
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   spark-worker:
@@ -383,7 +387,7 @@ services:
         tail -f /opt/spark/logs/*
       "
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   # =============================================================================
@@ -407,7 +411,7 @@ services:
     depends_on:
       - spark-master
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   # =============================================================================
@@ -451,7 +455,7 @@ services:
         condition: service_healthy
     restart: "no"
     networks:
-      - lakehouse-network
+      - dmz-net
 
   mage-api:
     build:
@@ -494,7 +498,7 @@ services:
       start_period: 60s
     restart: unless-stopped
     networks:
-      - lakehouse-network
+      - dmz-net
 
   mage-ui:
     build:
@@ -516,7 +520,7 @@ services:
       - mage-api
     restart: unless-stopped
     networks:
-      - lakehouse-network
+      - dmz-net
 
   # =============================================================================
   # StarRocks - High-Performance OLAP Database
@@ -542,7 +546,7 @@ services:
       retries: 5
       start_period: 60s
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   starrocks-be:
@@ -569,7 +573,7 @@ services:
       retries: 5
       start_period: 60s
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   # =============================================================================
@@ -592,7 +596,7 @@ services:
       retries: 5
       start_period: 60s
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   trino-worker:
@@ -607,7 +611,7 @@ services:
       trino-coordinator:
         condition: service_healthy
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   # =============================================================================
@@ -641,7 +645,7 @@ services:
       retries: 5
       start_period: 90s
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   # MySQL for DataEase
@@ -654,7 +658,7 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
   # MinIO for DataEase
@@ -668,7 +672,7 @@ services:
     volumes:
       - minio-data:/data
     networks:
-      - lakehouse-network
+      - dmz-net
     restart: unless-stopped
 
 volumes:
@@ -694,7 +698,22 @@ volumes:
     driver: local
   minio-data:
     driver: local
+  loki-data:
+    driver: local
+  backup-storage:
+    driver: local
 
 networks:
-  lakehouse-network:
+  dmz-net:
     driver: bridge
+    labels:
+      description: "DMZ Network - Public facing services"
+  compute-net:
+    driver: bridge
+    labels:
+      description: "Compute Network - Processing engines"
+  data-net:
+    driver: bridge
+    internal: true
+    labels:
+      description: "Data Network - Internal storage only"

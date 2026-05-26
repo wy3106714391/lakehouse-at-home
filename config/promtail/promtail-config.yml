@@ -1,0 +1,71 @@
+# Promtail Configuration for Docker Container Log Collection
+# https://grafana.com/docs/loki/latest/clients/promtail/configuration/
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Monitor Docker containers via Docker socket
+  - job_name: containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'logstream'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: 'project'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      - source_labels: ['__meta_docker_container_image']
+        target_label: 'image'
+      
+      # Add custom labels for specific services
+      - source_labels: ['__meta_docker_container_name']
+        regex: '.*mage.*'
+        action: labeldrop
+        target_label: 'component'
+        replacement: 'mage'
+        
+      - source_labels: ['__meta_docker_container_name']
+        regex: '.*trino.*'
+        action: labeldrop
+        target_label: 'component'
+        replacement: 'trino'
+        
+      - source_labels: ['__meta_docker_container_name']
+        regex: '.*starrocks.*'
+        action: labeldrop
+        target_label: 'component'
+        replacement: 'starrocks'
+        
+      - source_labels: ['__meta_docker_container_name']
+        regex: '.*openmetadata.*'
+        action: labeldrop
+        target_label: 'component'
+        replacement: 'openmetadata'
+        
+      - source_labels: ['__meta_docker_container_name']
+        regex: '.*polaris.*'
+        action: labeldrop
+        target_label: 'component'
+        replacement: 'polaris'
+
+  # Monitor system logs (optional)
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          __path__: /var/log/*log
