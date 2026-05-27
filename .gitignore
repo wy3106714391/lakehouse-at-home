@@ -1,19 +1,4 @@
 ```
-# Configuration and log files
-*.log
-*.tmp
-
-# Environment files
-.env
-.env.local
-*.env.*
-
-# Editor/IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
 # Dependencies
 node_modules/
 venv/
@@ -21,23 +6,34 @@ venv/
 __pycache__/
 .mypy_cache/
 .pytest_cache/
-target/
-.gradle/
+.julia/
+.zig/
 
 # Build artifacts
 dist/
 build/
-*.pyc
-*.class
-*.o
-*.exe
-*.dll
-*.so
-*.a
-*.obj
+target/
+.gradle/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
 *.out
 
-# System files
+# Environment files
+.env
+.env.local
+*.env.*
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS specific
 .DS_Store
 Thumbs.db
 

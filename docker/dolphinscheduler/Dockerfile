@@ -1,5 +1,5 @@
-# Airflow 3.1.6 with Python 3.12
-FROM apache/airflow:3.1.6-python3.12
+# Apache DolphinScheduler with Spark support
+FROM apache/dolphinscheduler:3.2.2
 
 USER root
 
@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     openjdk-17-jre-headless \
     curl \
+    netcat-openbsd \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -21,22 +22,13 @@ ENV SPARK_HOME=/opt/spark
 RUN curl -fsSL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
     | tar -xz -C /opt/ \
     && mv /opt/spark-${SPARK_VERSION}-bin-hadoop3 ${SPARK_HOME} \
-    && chown -R airflow:root ${SPARK_HOME}
+    && chown -R dolphinscheduler:dolphinscheduler ${SPARK_HOME}
 
 ENV PATH="${SPARK_HOME}/bin:${PATH}"
 
-USER airflow
-
-# Install Airflow providers (latest versions compatible with Airflow 3.x)
-RUN pip install --no-cache-dir \
-    apache-airflow-providers-apache-spark==5.5.0 \
-    apache-airflow-providers-postgres==5.14.0 \
-    apache-airflow-providers-apache-kafka==1.8.0 \
-    apache-airflow-providers-docker==3.14.0 \
-    apache-airflow-providers-http==5.6.3 \
-    pyspark==4.1.0
+USER dolphinscheduler
 
 # Create directories
-RUN mkdir -p /opt/airflow/dags /opt/airflow/logs /opt/airflow/config
+RUN mkdir -p /opt/dolphinscheduler/tasks /opt/dolphinscheduler/logs /opt/dolphinscheduler/config
 
-WORKDIR /opt/airflow
+WORKDIR /opt/dolphinscheduler

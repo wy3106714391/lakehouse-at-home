@@ -1,0 +1,102 @@
+x-dolphinscheduler-common:
+  &dolphinscheduler-common
+  build:
+    context: .
+    dockerfile: docker/dolphinscheduler/Dockerfile
+  env_file: .env
+  environment:
+    &dolphinscheduler-common-env
+    # Database configuration
+    DS_DB_TYPE: postgresql
+    DS_DB_HOST: localhost
+    DS_DB_PORT: 5432
+    DS_DB_USERNAME: ${POSTGRES_USER:-postgres}
+    DS_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+    DS_DB_DATABASE: dolphinscheduler
+    # Registry configuration (using Zookeeper from Kafka stack)
+    DS_REGISTRY_TYPE: zookeeper
+    DS_REGISTRY_ZOOKEEPER_QUORUM: localhost:2181
+    # DolphinScheduler API port
+    DS_API_SERVER_PORT: 12345
+    # Worker configuration
+    DS_WORKER_EXEC_THREADS: 20
+    DS_WORKER_MAX_MEMORY: 2147483648
+    # Spark connection settings
+    SPARK_MASTER_40: spark://localhost:7077
+    SPARK_MASTER_41: spark://localhost:7078
+    # Kafka settings
+    KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+    # S3/SeaweedFS settings
+    AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+    AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+    AWS_ENDPOINT_URL: ${S3_ENDPOINT}
+  volumes:
+    - ./tasks:/opt/dolphinscheduler/tasks
+    - ./logs/dolphinscheduler:/opt/dolphinscheduler/logs
+    - ./config/dolphinscheduler:/opt/dolphinscheduler/config
+    - ./scripts:/opt/dolphinscheduler/scripts
+    - ./jars:/opt/dolphinscheduler/jars
+    - ./data:/opt/dolphinscheduler/data
+  network_mode: "host"
+  depends_on:
+    dolphinscheduler-db-init:
+      condition: service_completed_successfully
+
+services:
+  # Initialize database
+  dolphinscheduler-db-init:
+    <<: *dolphinscheduler-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        echo "Initializing DolphinScheduler database..."
+        
+        # Create database if it doesn't exist
+        PGPASSWORD=${POSTGRES_PASSWORD} psql -h localhost -U ${POSTGRES_USER} -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'dolphinscheduler'" | grep -q 1 || \
+        PGPASSWORD=${POSTGRES_PASSWORD} psql -h localhost -U ${POSTGRES_USER} -d postgres -c "CREATE DATABASE dolphinscheduler"
+        
+        echo "Database initialization complete"
+    environment:
+      <<: *dolphinscheduler-common-env
+    depends_on: []
+    restart: "no"
+
+  # API Server (master node)
+  dolphinscheduler-master:
+    <<: *dolphinscheduler-common
+    container_name: dolphinscheduler-master
+    command: master-server
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:12345/dolphinscheduler/api/v2/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # Worker Server
+  dolphinscheduler-worker:
+    <<: *dolphinscheduler-common
+    container_name: dolphinscheduler-worker
+    command: worker-server
+    healthcheck:
+      test: ["CMD-SHELL", 'ps aux | grep worker-server | grep -v grep > /dev/null']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Alert Server (optional, for notifications)
+  dolphinscheduler-alert:
+    <<: *dolphinscheduler-common
+    container_name: dolphinscheduler-alert
+    command: alert-server
+    healthcheck:
+      test: ["CMD-SHELL", 'ps aux | grep alert-server | grep -v grep > /dev/null']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped

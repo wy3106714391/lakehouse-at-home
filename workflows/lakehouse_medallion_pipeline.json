@@ -1,0 +1,69 @@
+{
+  "name": "lakehouse_medallion_pipeline",
+  "description": "Bronze -> Silver -> Gold medallion pipeline using Spark on Iceberg",
+  "schedule": "0 2 * * *",
+  "timezone": "UTC",
+  "workflowDefinition": {
+    "tasks": [
+      {
+        "code": "check_kafka",
+        "name": "Check Kafka Availability",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\ntimeout 10 bash -c 'echo \"\" | nc -w 5 localhost 9092' && echo \"Kafka is available\" || echo \"Kafka not available - continuing anyway\""
+        },
+        "timeout": 60,
+        "retryTimes": 1,
+        "retryInterval": 300
+      },
+      {
+        "code": "choose_spark_version",
+        "name": "Choose Spark Version",
+        "taskType": "CONDITIONS",
+        "taskParams": {
+          "conditionResult": {
+            "successNode": ["run_pipeline_spark41"],
+            "failedNode": ["run_pipeline_spark40"]
+          }
+        },
+        "timeout": 60,
+        "preTasks": ["check_kafka"]
+      },
+      {
+        "code": "run_pipeline_spark41",
+        "name": "Run Pipeline Spark 4.1",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\ndocker exec spark-master-41 /opt/spark/bin/spark-submit /scripts/pipelines/pipeline_spark41.py"
+        },
+        "timeout": 3600,
+        "retryTimes": 1,
+        "retryInterval": 300,
+        "preTasks": ["choose_spark_version"]
+      },
+      {
+        "code": "run_pipeline_spark40",
+        "name": "Run Pipeline Spark 4.0",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\ndocker exec spark-master /opt/spark/bin/spark-submit /scripts/pipelines/pipeline_spark40.py"
+        },
+        "timeout": 3600,
+        "retryTimes": 1,
+        "retryInterval": 300,
+        "preTasks": ["choose_spark_version"]
+      },
+      {
+        "code": "verify_tables",
+        "name": "Verify Tables",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nSELECT 'bronze.orders' as table_name, count(*) as row_count FROM iceberg.bronze.orders\nUNION ALL\nSELECT 'silver.orders_clean', count(*) FROM iceberg.silver.orders_clean\nUNION ALL\nSELECT 'gold.daily_summary', count(*) FROM iceberg.gold.daily_summary\n\" 2>/dev/null || echo \"Table verification skipped - tables may not exist yet\""
+        },
+        "timeout": 300,
+        "retryTimes": 0,
+        "preTasks": ["run_pipeline_spark41", "run_pipeline_spark40"]
+      }
+    ]
+  }
+}

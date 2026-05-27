@@ -21,7 +21,7 @@ A fully open-source, self-hostable data lakehouse for local development and test
 | Apache Spark | 4.0 / 4.1 | Distributed compute |
 | Apache Iceberg | 1.10 | ACID table format |
 | Apache Kafka | 3.6 | Event streaming |
-| Apache Airflow | 3.1 | Workflow orchestration |
+| Apache DolphinScheduler | 3.2 | Workflow orchestration |
 | PostgreSQL | 16 | Catalog metadata |
 | SeaweedFS | - | S3-compatible storage |
 | Unity Catalog | 0.3.1 | REST catalog (optional) |
