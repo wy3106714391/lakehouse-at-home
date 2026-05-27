@@ -1,4 +1,4 @@
-# CLAUDE.md - Agent Guide for lakehouse-stack
+## CLAUDE.md - Agent Guide for lakehouse-stack
 
 ## Project Overview
 
@@ -9,10 +9,10 @@ Self-hostable data lakehouse: Spark 4.x + Iceberg 1.10 + Kafka 3.6 + PostgreSQL 
 | Document | Purpose |
 |----------|---------|
 | `docs/getting-started/` | Installation, quickstart, configuration |
-| `docs/guides/` | CLI reference, streaming, test data, multi-version Spark, Airflow orchestration |
+| `docs/guides/` | CLI reference, streaming, test data, multi-version Spark, DolphinScheduler orchestration |
 | `docs/guides/unity-catalog.md` | Unity Catalog OSS setup and migration |
 | `docs/guides/pipelines.md` | Data pipelines (imperative vs declarative) |
-| `docs/guides/airflow.md` | Apache Airflow orchestration |
+| `docs/guides/dolphinscheduler.md` | Apache DolphinScheduler orchestration |
 | `docs/deployment/` | Local and AWS deployment |
 | `docs/architecture.md` | System design |
 | `docs/troubleshooting.md` | Common issues |
@@ -41,10 +41,10 @@ Self-hostable data lakehouse: Spark 4.x + Iceberg 1.10 + Kafka 3.6 + PostgreSQL 
 ./lakehouse stop unity-catalog   # Stop Unity Catalog
 ./lakehouse logs unity-catalog   # View Unity Catalog logs
 
-# Airflow (optional - requires Airflow 3.x)
-./lakehouse start airflow   # Start Airflow scheduler and API server
-./lakehouse stop airflow    # Stop Airflow
-./lakehouse logs airflow    # View Airflow logs
+# DolphinScheduler (optional)
+./lakehouse start dolphinscheduler   # Start DolphinScheduler master, worker, and API server
+./lakehouse stop dolphinscheduler    # Stop DolphinScheduler
+./lakehouse logs dolphinscheduler    # View DolphinScheduler logs
 
 # Database migrations
 ./lakehouse migrate        # Apply schema migrations
@@ -92,8 +92,8 @@ poetry run pytest -m spark41 -v                           # Spark 4.1 only
 | `docker-compose.yml` | Spark 4.0 cluster |
 | `docker-compose-kafka.yml` | Kafka + Zookeeper |
 | `docker-compose-unity-catalog.yml` | Unity Catalog OSS server |
-| `docker-compose-airflow.yml` | Apache Airflow orchestration |
-| `dags/` | Airflow DAG definitions |
+| `docker-compose-dolphinscheduler.yml` | DolphinScheduler orchestration |
+| `workflows/` | DolphinScheduler workflow definitions |
 | `jars/` | Required JARs (~860MB) |
 | `scripts/quickstarts/` | Tutorials (01-04) and demos |
 | `scripts/connectivity/` | Integration test scripts (run via CLI) |
@@ -113,7 +113,7 @@ Spark 4.x → Iceberg 1.10 → PostgreSQL (metadata) + SeaweedFS (data)
                 ↑               ↑
             Kafka 3.6      Unity Catalog (optional REST catalog)
                 ↑
-            Airflow (optional orchestration)
+            DolphinScheduler (optional orchestration)
 ```
 
 **Catalog Options:**
@@ -136,7 +136,7 @@ Spark 4.x → Iceberg 1.10 → PostgreSQL (metadata) + SeaweedFS (data)
 | Kafka | 9092 |
 | Zookeeper | 2181 |
 | Unity Catalog | 8081 (when running with Spark) |
-| Airflow | 8085 |
+| DolphinScheduler | 12345 (UI: 12345) |
 
 ## Code Style
 
@@ -150,13 +150,13 @@ Do not change without testing:
 - AWS SDK v2: **2.24.6** (exact for Hadoop 3.4.1)
 - Iceberg: **1.10.0**
 - Spark: **4.0.1** or **4.1.0** (Scala 2.13)
-- Airflow: **3.1.6** (breaking changes from 2.x - see `docs/guides/airflow.md`)
+- DolphinScheduler: **3.2.0**
 - Poetry: **2.1.0**
 
 **Java versions** (don't change - these are set by official images):
 - Spark 4.0 container: Java 17 (from `apache/spark:4.0.1-scala2.13-java17-*`)
 - Spark 4.1 container: Java 21 (from `apache/spark:4.1.0-scala2.13-java21-*`)
-- Airflow container: Java 17 (sufficient for scheduling; Spark jobs run in Spark containers)
+- DolphinScheduler container: Java 17 (sufficient for scheduling; Spark jobs run in Spark containers)
 
 ## Security
 
@@ -179,7 +179,7 @@ poetry run pytest -m security -v
 - Python security (bandit)
 - Shell security (shellcheck)
 
-## CI/CD
+CI/CD
 
 GitHub Actions workflow (`.github/workflows/ci.yml`):
 
@@ -190,7 +190,7 @@ GitHub Actions workflow (`.github/workflows/ci.yml`):
 | Container Startup | Verify Spark 4.0/4.1 images |
 | Integration Tests | PostgreSQL, Kafka connectivity |
 | Spark Matrix | Parallel Spark 4.0 + 4.1 tests |
-| Airflow Validation | DAG validation and container tests |
+| DolphinScheduler Validation | Workflow definition validation and container tests |
 | E2E Pipeline | Full stack test (master only) |
 
 ## Common Tasks
@@ -221,7 +221,7 @@ See `docs/troubleshooting.md` for full guide.
 ./lakehouse check-config      # Validate credentials
 docker logs spark-master-41   # Spark logs
 docker logs kafka             # Kafka logs
-docker logs airflow-webserver # Airflow logs
+docker logs dolphinscheduler-master # DolphinScheduler logs
 ```
 
 ## For AI Agents

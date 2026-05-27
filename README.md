@@ -91,10 +91,10 @@ See [Installation Guide](docs/getting-started/installation.md) for detailed OS-s
 ./lakehouse start unity-catalog  # Start Unity Catalog REST server
 ./lakehouse stop unity-catalog   # Stop Unity Catalog
 
-# Airflow (optional)
-./lakehouse start airflow        # Start Airflow scheduler + webserver
-./lakehouse stop airflow         # Stop Airflow
-./lakehouse logs airflow-webserver  # View Airflow logs
+# DolphinScheduler (optional)
+./lakehouse start dolphinscheduler        # Start DolphinScheduler master + worker + API
+./lakehouse stop dolphinscheduler         # Stop DolphinScheduler
+./lakehouse logs dolphinscheduler-master  # View DolphinScheduler logs
 ```
 
 See [CLI Reference](docs/guides/cli-reference.md) for all commands.
@@ -120,7 +120,7 @@ See [Test Data Guide](docs/guides/test-data.md) for details.
 | [Configuration](docs/getting-started/configuration.md) | Environment and Spark config |
 | [CLI Reference](docs/guides/cli-reference.md) | All commands |
 | [Streaming](docs/guides/streaming.md) | Kafka + Spark streaming |
-| [Airflow](docs/guides/airflow.md) | Workflow orchestration |
+| [DolphinScheduler](docs/guides/dolphinscheduler.md) | Workflow orchestration |
 | [Multi-Version Spark](docs/guides/multi-version.md) | Run 4.0 and 4.1 together |
 | [Unity Catalog](docs/guides/unity-catalog.md) | REST catalog setup & migration |
 | [Architecture](docs/architecture.md) | System design |
@@ -156,9 +156,9 @@ See [Test Data Guide](docs/guides/test-data.md) for details.
 ┌──────────────────────┐                        │ spark-submit          │
 │  ORCHESTRATION       │────────────────────────┘                       │
 │                      │                                                │
-│  Airflow (:8085)     │  (Airflow schedules Spark jobs;                │
-│  └─ DAGs             │   Spark talks to Iceberg)                      │
-│  └─ Sensors          │                                                │
+│  DolphinScheduler    │  (DolphinScheduler schedules Spark jobs;       │
+│  └─ workflows        │   Spark talks to Iceberg)                      │
+│  └─ tasks            │                                                │
 └──────────────────────┘                                                │
                                                                         ▼
                             ┌───────────────────────────────────────────────────────┐
@@ -186,7 +186,7 @@ See [Test Data Guide](docs/guides/test-data.md) for details.
 **How It Works:**
 1. **Streaming** → Kafka feeds events directly to Spark (not via catalog)
 2. **Compute** → Spark transforms data through Bronze → Silver → Gold layers
-3. **Orchestration** → Airflow schedules Spark jobs via `docker exec spark-submit`
+3. **Orchestration** → DolphinScheduler schedules Spark jobs via `docker exec spark-submit`
 4. **Catalog** → PostgreSQL or Unity Catalog manages Iceberg table metadata
 5. **Storage** → SeaweedFS stores Parquet files accessed via Iceberg
 
@@ -207,7 +207,7 @@ See [Test Data Guide](docs/guides/test-data.md) for details.
 | Spark 4.0 | 7077 | http://localhost:8080 |
 | Spark 4.1 | 7078 | http://localhost:8082 |
 | Kafka | 9092 | - |
-| Airflow | 8085 | http://localhost:8085 |
+| DolphinScheduler | 12345 | http://localhost:12345 |
 | Unity Catalog | 8080 | REST API |
 
 ## Cloud Deployment

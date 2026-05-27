@@ -61,7 +61,7 @@ Start services.
 ./lakehouse start all              # Start Spark + Kafka
 ./lakehouse start spark            # Start Spark only
 ./lakehouse start kafka            # Start Kafka only
-./lakehouse start airflow          # Start Airflow (scheduler + webserver)
+./lakehouse start dolphinscheduler # Start DolphinScheduler (master + worker + API)
 ./lakehouse start spark --version 4.0  # Start Spark 4.0
 ```
 
@@ -75,7 +75,7 @@ Stop services.
 ./lakehouse stop all
 ./lakehouse stop spark
 ./lakehouse stop kafka
-./lakehouse stop airflow
+./lakehouse stop dolphinscheduler
 ./lakehouse stop spark --version 4.0
 ```
 
@@ -98,8 +98,8 @@ View service logs (follows/tails).
 ./lakehouse logs spark-worker
 ./lakehouse logs kafka
 ./lakehouse logs zookeeper
-./lakehouse logs airflow-webserver
-./lakehouse logs airflow-scheduler
+./lakehouse logs dolphinscheduler-master
+./lakehouse logs dolphinscheduler-worker
 ./lakehouse logs spark-master --version 4.0
 ```
 
@@ -239,31 +239,33 @@ The CLI reads from `.env`:
 - `POSTGRES_HOST` - Database host
 - `S3_*` - S3/SeaweedFS settings
 
-## Airflow Commands
+## DolphinScheduler Commands
 
 ```bash
-# Start Airflow
-./lakehouse start airflow
+# Start DolphinScheduler
+./lakehouse start dolphinscheduler
 
-# Stop Airflow
-./lakehouse stop airflow
+# Stop DolphinScheduler
+./lakehouse stop dolphinscheduler
 
 # View logs
-./lakehouse logs airflow-webserver
-./lakehouse logs airflow-scheduler
-./lakehouse logs airflow-triggerer
+./lakehouse logs dolphinscheduler-master
+./lakehouse logs dolphinscheduler-worker
+./lakehouse logs dolphinscheduler-api
 
-# Trigger a DAG manually
-docker exec airflow-webserver airflow dags trigger lakehouse_medallion_pipeline
+# Access UI
+# Open http://localhost:12345 in browser
+# Default credentials: admin/admin123
 
-# List DAG runs
-docker exec airflow-webserver airflow dags list-runs -d lakehouse_medallion_pipeline
+# Upload workflow
+# Use the DolphinScheduler UI or API to upload JSON workflows from workflows/ directory
+# Example: curl -X POST http://localhost:12345/dolphinscheduler/api/v1/workflows -F "file=@workflows/lakehouse_medallion_pipeline.json"
 ```
 
-See [Airflow Guide](airflow.md) for DAG details and configuration.
+See [DolphinScheduler Guide](dolphinscheduler.md) for workflow details and configuration.
 
 ## See Also
 
 - [Configuration](../getting-started/configuration.md)
-- [Airflow Guide](airflow.md)
+- [DolphinScheduler Guide](dolphinscheduler.md)
 - [Troubleshooting](../troubleshooting.md)
