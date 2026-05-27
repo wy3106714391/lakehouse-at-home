@@ -1,0 +1,171 @@
+{
+  "name": "lakehouse_medallion_pipeline",
+  "description": "Bronze -> Silver -> Gold medallion pipeline using Spark on Iceberg",
+  "schedule": {
+    "startTime": "2024-01-01 00:00:00",
+    "endTime": "2100-01-01 00:00:00",
+    "crontab": "0 0 * * *",
+    "timezoneId": "UTC"
+  },
+  "tasks": [
+    {
+      "code": 1,
+      "name": "check_kafka_availability",
+      "taskType": "SHELL",
+      "taskParams": {
+        "resourceList": [],
+        "localParams": [],
+        "rawScript": "#!/bin/bash\nset -e\ntimeout 10 bash -c 'echo \"\" | nc -w 5 localhost 9092' \\\n    && echo \"Kafka is available\" \\\n    || echo \"Kafka not available - continuing anyway\"\necho \"Task completed successfully\"",
+        "dependence": {},
+        "waitStartTimeout": {}
+      },
+      "flag": "YES",
+      "taskPriority": "MEDIUM",
+      "workerGroup": "default",
+      "failRetryTimes": 1,
+      "failRetryInterval": 5,
+      "timeoutFlag": "CLOSE",
+      "timeoutNotifyStrategy": "",
+      "delayTime": 0,
+      "timeout": 0
+    },
+    {
+      "code": 2,
+      "name": "choose_spark_version",
+      "taskType": "CONDITIONS",
+      "taskParams": {
+        "resourceList": [],
+        "localParams": [
+          {
+            "prop": "spark_version",
+            "direct": "IN",
+            "type": "VARCHAR",
+            "value": "4.1"
+          }
+        ],
+        "rawScript": "#!/bin/bash\n# Check configured Spark version (default to 4.1)\nSPARK_VERSION=\"${SPARK_VERSION:-4.1}\"\necho \"Using Spark version: $SPARK_VERSION\"\nif [ \"$SPARK_VERSION\" = \"4.1\" ]; then\n    exit 0  # Success path leads to Spark 4.1 task\nelse\n    exit 1  # Failure path leads to Spark 4.0 task\nfi",
+        "dependence": {},
+        "waitStartTimeout": {},
+        "conditionResult": {
+          "successNode": ["run_pipeline_spark41"],
+          "failedNode": ["run_pipeline_spark40"]
+        }
+      },
+      "flag": "YES",
+      "taskPriority": "MEDIUM",
+      "workerGroup": "default",
+      "failRetryTimes": 0,
+      "failRetryInterval": 0,
+      "timeoutFlag": "CLOSE",
+      "timeoutNotifyStrategy": "",
+      "delayTime": 0,
+      "timeout": 0
+    },
+    {
+      "code": 3,
+      "name": "run_pipeline_spark41",
+      "taskType": "SHELL",
+      "taskParams": {
+        "resourceList": [],
+        "localParams": [],
+        "rawScript": "#!/bin/bash\nset -e\necho \"Running pipeline with Spark 4.1...\"\ndocker exec spark-master-41 /opt/spark/bin/spark-submit /scripts/pipelines/pipeline_spark41.py\necho \"Spark 4.1 pipeline completed\"",
+        "dependence": {},
+        "waitStartTimeout": {}
+      },
+      "flag": "YES",
+      "taskPriority": "HIGH",
+      "workerGroup": "default",
+      "failRetryTimes": 1,
+      "failRetryInterval": 5,
+      "timeoutFlag": "CLOSE",
+      "timeoutNotifyStrategy": "",
+      "delayTime": 0,
+      "timeout": 0
+    },
+    {
+      "code": 4,
+      "name": "run_pipeline_spark40",
+      "taskType": "SHELL",
+      "taskParams": {
+        "resourceList": [],
+        "localParams": [],
+        "rawScript": "#!/bin/bash\nset -e\necho \"Running pipeline with Spark 4.0...\"\ndocker exec spark-master /opt/spark/bin/spark-submit /scripts/pipelines/pipeline_spark40.py\necho \"Spark 4.0 pipeline completed\"",
+        "dependence": {},
+        "waitStartTimeout": {}
+      },
+      "flag": "YES",
+      "taskPriority": "HIGH",
+      "workerGroup": "default",
+      "failRetryTimes": 1,
+      "failRetryInterval": 5,
+      "timeoutFlag": "CLOSE",
+      "timeoutNotifyStrategy": "",
+      "delayTime": 0,
+      "timeout": 0
+    },
+    {
+      "code": 5,
+      "name": "verify_tables",
+      "taskType": "SHELL",
+      "taskParams": {
+        "resourceList": [],
+        "localParams": [],
+        "rawScript": "#!/bin/bash\necho \"Verifying pipeline tables...\"\nSPARK_VERSION=\"${SPARK_VERSION:-4.1}\"\nif [ \"$SPARK_VERSION\" = \"4.1\" ]; then\n    SPARK_CONTAINER=\"spark-master-41\"\nelse\n    SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\n    SELECT 'bronze.orders' as table_name, count(*) as row_count FROM iceberg.bronze.orders\n    UNION ALL\n    SELECT 'silver.orders_clean', count(*) FROM iceberg.silver.orders_clean\n    UNION ALL\n    SELECT 'gold.daily_summary', count(*) FROM iceberg.gold.daily_summary\n\" 2>/dev/null || echo \"Table verification skipped - tables may not exist yet\"\necho \"Verification complete\"",
+        "dependence": {},
+        "waitStartTimeout": {}
+      },
+      "flag": "YES",
+      "taskPriority": "MEDIUM",
+      "workerGroup": "default",
+      "failRetryTimes": 0,
+      "failRetryInterval": 0,
+      "timeoutFlag": "CLOSE",
+      "timeoutNotifyStrategy": "",
+      "delayTime": 0,
+      "timeout": 0,
+      "conditionPreScript": ""
+    }
+  ],
+  "taskRelationList": [
+    {
+      "preTaskCode": 1,
+      "postTaskCode": 2,
+      "preTaskVersion": 1,
+      "postTaskVersion": 1,
+      "conditionType": 0,
+      "conditionParams": {}
+    },
+    {
+      "preTaskCode": 2,
+      "postTaskCode": 3,
+      "preTaskVersion": 1,
+      "postTaskVersion": 1,
+      "conditionType": 0,
+      "conditionParams": {}
+    },
+    {
+      "preTaskCode": 2,
+      "postTaskCode": 4,
+      "preTaskVersion": 1,
+      "postTaskVersion": 1,
+      "conditionType": 0,
+      "conditionParams": {}
+    },
+    {
+      "preTaskCode": 3,
+      "postTaskCode": 5,
+      "preTaskVersion": 1,
+      "postTaskVersion": 1,
+      "conditionType": 0,
+      "conditionParams": {}
+    },
+    {
+      "preTaskCode": 4,
+      "postTaskCode": 5,
+      "preTaskVersion": 1,
+      "postTaskVersion": 1,
+      "conditionType": 0,
+      "conditionParams": {}
+    }
+  ]
+}

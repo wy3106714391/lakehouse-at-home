@@ -1,0 +1,126 @@
+{
+  "name": "iceberg_maintenance",
+  "description": "Iceberg table maintenance: expire snapshots, remove orphans, compact files",
+  "schedule": "0 3 * * *",
+  "timezone": "UTC",
+  "workflowDefinition": {
+    "tasks": [
+      {
+        "code": "check_spark_cluster",
+        "name": "Check Spark Cluster",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-submit --version > /dev/null 2>&1 && echo \"Spark cluster available\" || (echo \"Spark cluster not available\" && exit 1)"
+        },
+        "timeout": 60,
+        "retryTimes": 2,
+        "retryInterval": 600
+      },
+      {
+        "code": "expire_snapshots_bronze_orders",
+        "name": "Expire Snapshots - bronze.orders",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nCALL iceberg.system.expire_snapshots(\n  table => 'iceberg.bronze.orders',\n  older_than => TIMESTAMP '$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S')',\n  retain_last => 5\n)\" 2>/dev/null || echo \"Skipping iceberg.bronze.orders - table may not exist\""
+        },
+        "timeout": 600,
+        "retryTimes": 1,
+        "retryInterval": 300,
+        "preTasks": ["check_spark_cluster"]
+      },
+      {
+        "code": "remove_orphans_bronze_orders",
+        "name": "Remove Orphans - bronze.orders",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nCALL iceberg.system.remove_orphan_files(\n  table => 'iceberg.bronze.orders',\n  older_than => TIMESTAMP '$(date -d '3 days ago' '+%Y-%m-%d %H:%M:%S')'\n)\" 2>/dev/null || echo \"Skipping iceberg.bronze.orders - table may not exist\""
+        },
+        "timeout": 600,
+        "retryTimes": 1,
+        "retryInterval": 300,
+        "preTasks": ["expire_snapshots_bronze_orders"]
+      },
+      {
+        "code": "compact_files_bronze_orders",
+        "name": "Compact Files - bronze.orders",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nCALL iceberg.system.rewrite_data_files(\n  table => 'iceberg.bronze.orders',\n  options => map(\n    'target-file-size-bytes', '134217728',\n    'min-input-files', '5'\n  )\n)\" 2>/dev/null || echo \"Skipping iceberg.bronze.orders - table may not exist or no files to compact\""
+        },
+        "timeout": 1800,
+        "retryTimes": 0,
+        "preTasks": ["remove_orphans_bronze_orders"]
+      },
+      {
+        "code": "expire_snapshots_silver_orders_clean",
+        "name": "Expire Snapshots - silver.orders_clean",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nCALL iceberg.system.expire_snapshots(\n  table => 'iceberg.silver.orders_clean',\n  older_than => TIMESTAMP '$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S')',\n  retain_last => 5\n)\" 2>/dev/null || echo \"Skipping iceberg.silver.orders_clean - table may not exist\""
+        },
+        "timeout": 600,
+        "retryTimes": 1,
+        "retryInterval": 300,
+        "preTasks": ["check_spark_cluster"]
+      },
+      {
+        "code": "remove_orphans_silver_orders_clean",
+        "name": "Remove Orphans - silver.orders_clean",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nCALL iceberg.system.remove_orphan_files(\n  table => 'iceberg.silver.orders_clean',\n  older_than => TIMESTAMP '$(date -d '3 days ago' '+%Y-%m-%d %H:%M:%S')'\n)\" 2>/dev/null || echo \"Skipping iceberg.silver.orders_clean - table may not exist\""
+        },
+        "timeout": 600,
+        "retryTimes": 1,
+        "retryInterval": 300,
+        "preTasks": ["expire_snapshots_silver_orders_clean"]
+      },
+      {
+        "code": "compact_files_silver_orders_clean",
+        "name": "Compact Files - silver.orders_clean",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nCALL iceberg.system.rewrite_data_files(\n  table => 'iceberg.silver.orders_clean',\n  options => map(\n    'target-file-size-bytes', '134217728',\n    'min-input-files', '5'\n  )\n)\" 2>/dev/null || echo \"Skipping iceberg.silver.orders_clean - table may not exist or no files to compact\""
+        },
+        "timeout": 1800,
+        "retryTimes": 0,
+        "preTasks": ["remove_orphans_silver_orders_clean"]
+      },
+      {
+        "code": "expire_snapshots_gold_daily_summary",
+        "name": "Expire Snapshots - gold.daily_summary",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nCALL iceberg.system.expire_snapshots(\n  table => 'iceberg.gold.daily_summary',\n  older_than => TIMESTAMP '$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S')',\n  retain_last => 5\n)\" 2>/dev/null || echo \"Skipping iceberg.gold.daily_summary - table may not exist\""
+        },
+        "timeout": 600,
+        "retryTimes": 1,
+        "retryInterval": 300,
+        "preTasks": ["check_spark_cluster"]
+      },
+      {
+        "code": "remove_orphans_gold_daily_summary",
+        "name": "Remove Orphans - gold.daily_summary",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nCALL iceberg.system.remove_orphan_files(\n  table => 'iceberg.gold.daily_summary',\n  older_than => TIMESTAMP '$(date -d '3 days ago' '+%Y-%m-%d %H:%M:%S')'\n)\" 2>/dev/null || echo \"Skipping iceberg.gold.daily_summary - table may not exist\""
+        },
+        "timeout": 600,
+        "retryTimes": 1,
+        "retryInterval": 300,
+        "preTasks": ["expire_snapshots_gold_daily_summary"]
+      },
+      {
+        "code": "compact_files_gold_daily_summary",
+        "name": "Compact Files - gold.daily_summary",
+        "taskType": "SHELL",
+        "taskParams": {
+          "rawScript": "#!/bin/bash\nSPARK_VERSION=${SPARK_VERSION:-4.1}\nSPARK_CONTAINER=\"spark-master-41\"\nif [ \"$SPARK_VERSION\" = \"4.0\" ]; then\n  SPARK_CONTAINER=\"spark-master\"\nfi\n\ndocker exec $SPARK_CONTAINER /opt/spark/bin/spark-sql -e \"\nCALL iceberg.system.rewrite_data_files(\n  table => 'iceberg.gold.daily_summary',\n  options => map(\n    'target-file-size-bytes', '134217728',\n    'min-input-files', '5'\n  )\n)\" 2>/dev/null || echo \"Skipping iceberg.gold.daily_summary - table may not exist or no files to compact\""
+        },
+        "timeout": 1800,
+        "retryTimes": 0,
+        "preTasks": ["remove_orphans_gold_daily_summary"]
+      }
+    ]
+  }
+}
