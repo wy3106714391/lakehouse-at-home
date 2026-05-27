@@ -1140,20 +1140,23 @@ CMD ["spark-pipelines", "run", "--spec", "pipeline.yml"]
 
 ### Scheduling
 
-#### With Airflow
+#### With DolphinScheduler
 
 ```python
-from airflow import DAG
-from airflow.operators.bash import BashOperator
+# Create workflow definition in workflows/ directory
+# Then upload via DolphinScheduler UI or API
+# Example shell task to run SDP pipeline:
 
-dag = DAG('sdp_pipeline', schedule_interval='@hourly')
-
-run_pipeline = BashOperator(
-    task_id='run_pipeline',
-    bash_command='spark-pipelines run --spec /path/to/pipeline.yml',
-    dag=dag,
-)
+{
+    "name": "run_sdp_pipeline",
+    "taskType": "SHELL",
+    "taskParams": {
+        "rawScript": "spark-pipelines run --spec /path/to/pipeline.yml"
+    }
+}
 ```
+
+See `docs/guides/dolphinscheduler.md` for complete workflow setup.
 
 #### With Cron
 
