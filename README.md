@@ -24,7 +24,7 @@ A fully open-source, self-hostable data lakehouse for local development and test
 | Apache DolphinScheduler | 3.2 | Workflow orchestration |
 | PostgreSQL | 16 | Catalog metadata |
 | SeaweedFS | - | S3-compatible storage |
-| Unity Catalog | 0.3.1 | REST catalog (optional) |
+| Apache Gravitino | 0.6.0 | Unified metadata layer (optional) |
 
 ## Requirements
 
@@ -87,9 +87,10 @@ See [Installation Guide](docs/getting-started/installation.md) for detailed OS-s
 ./lakehouse test                 # Run connectivity tests
 ./lakehouse logs spark-master    # View logs
 
-# Unity Catalog (optional)
-./lakehouse start unity-catalog  # Start Unity Catalog REST server
-./lakehouse stop unity-catalog   # Stop Unity Catalog
+# Apache Gravitino (optional)
+./lakehouse start gravitino      # Start Gravitino metadata server
+./lakehouse stop gravitino       # Stop Gravitino
+./lakehouse logs gravitino       # View Gravitino logs
 
 # DolphinScheduler (optional)
 ./lakehouse start dolphinscheduler        # Start DolphinScheduler master + worker + API
@@ -122,7 +123,7 @@ See [Test Data Guide](docs/guides/test-data.md) for details.
 | [Streaming](docs/guides/streaming.md) | Kafka + Spark streaming |
 | [DolphinScheduler](docs/guides/dolphinscheduler.md) | Workflow orchestration |
 | [Multi-Version Spark](docs/guides/multi-version.md) | Run 4.0 and 4.1 together |
-| [Unity Catalog](docs/guides/unity-catalog.md) | REST catalog setup & migration |
+| [Apache Gravitino](docs/guides/gravitino.md) | Unified metadata layer setup & migration |
 | [Architecture](docs/architecture.md) | System design |
 | [AWS Deployment](docs/deployment/aws.md) | Cloud production setup |
 | [Databricks Deployment](docs/deployment/databricks.md) | Managed Spark platform |
@@ -164,10 +165,10 @@ See [Test Data Guide](docs/guides/test-data.md) for details.
                             ┌───────────────────────────────────────────────────────┐
                             │                 CATALOG: Iceberg Metadata             │
                             │                                                       │
-                            │  PostgreSQL (:5432)          Unity Catalog (:8080)    │
+                            │  PostgreSQL (:5432)          Gravitino (:8090/:8091)  │
                             │  └─ JDBC catalog             └─ REST catalog          │
                             │  └─ table schemas            └─ multi-engine access   │
-                            │  └─ snapshots, partitions                             │
+                            │  └─ snapshots, partitions    └─ federated catalogs    │
                             └──────────────────────────┬────────────────────────────┘
                                                        │
                                                        ▼
@@ -187,15 +188,16 @@ See [Test Data Guide](docs/guides/test-data.md) for details.
 1. **Streaming** → Kafka feeds events directly to Spark (not via catalog)
 2. **Compute** → Spark transforms data through Bronze → Silver → Gold layers
 3. **Orchestration** → DolphinScheduler schedules Spark jobs via `docker exec spark-submit`
-4. **Catalog** → PostgreSQL or Unity Catalog manages Iceberg table metadata
+4. **Catalog** → PostgreSQL or Apache Gravitino manages Iceberg table metadata
 5. **Storage** → SeaweedFS stores Parquet files accessed via Iceberg
 
 **Catalog Options:**
-| Feature | PostgreSQL JDBC | Unity Catalog |
-|---------|-----------------|---------------|
-| Protocol | Direct SQL | REST API |
-| Clients | Spark only | Spark, DuckDB, Trino, Dremio |
-| Auth | Database credentials | OAuth / Token |
+| Feature | PostgreSQL JDBC | Apache Gravitino |
+|---------|-----------------|------------------|
+| Protocol | Direct SQL | REST API + Multiple backends |
+| Clients | Spark only | Spark, DuckDB, Trino, Presto, Flink |
+| Auth | Database credentials | OAuth/OIDC/Kerberos/Simple |
+| Multi-Catalog | No | Federated catalogs |
 | Setup | Simpler | More flexible |
 
 ## Ports
@@ -208,7 +210,7 @@ See [Test Data Guide](docs/guides/test-data.md) for details.
 | Spark 4.1 | 7078 | http://localhost:8082 |
 | Kafka | 9092 | - |
 | DolphinScheduler | 12345 | http://localhost:12345 |
-| Unity Catalog | 8080 | REST API |
+| Apache Gravitino | 8090/8091 | REST API |
 
 ## Cloud Deployment
 

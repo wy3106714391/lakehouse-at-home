@@ -10,7 +10,7 @@ Self-hostable data lakehouse: Spark 4.x + Iceberg 1.10 + Kafka 3.6 + PostgreSQL 
 |----------|---------|
 | `docs/getting-started/` | Installation, quickstart, configuration |
 | `docs/guides/` | CLI reference, streaming, test data, multi-version Spark, DolphinScheduler orchestration |
-| `docs/guides/unity-catalog.md` | Unity Catalog OSS setup and migration |
+| `docs/guides/gravitino.md` | Apache Gravitino setup and migration |
 | `docs/guides/pipelines.md` | Data pipelines (imperative vs declarative) |
 | `docs/guides/dolphinscheduler.md` | Apache DolphinScheduler orchestration |
 | `docs/deployment/` | Local and AWS deployment |
@@ -36,10 +36,10 @@ Self-hostable data lakehouse: Spark 4.x + Iceberg 1.10 + Kafka 3.6 + PostgreSQL 
 ./lakehouse test           # Connectivity tests (returns exit code)
 ./lakehouse logs <service> # View logs (spark-master, kafka, etc.)
 
-# Unity Catalog (optional)
-./lakehouse start unity-catalog  # Start Unity Catalog REST server
-./lakehouse stop unity-catalog   # Stop Unity Catalog
-./lakehouse logs unity-catalog   # View Unity Catalog logs
+# Apache Gravitino (optional)
+./lakehouse start gravitino      # Start Gravitino metadata server
+./lakehouse stop gravitino       # Stop Gravitino
+./lakehouse logs gravitino       # View Gravitino logs
 
 # DolphinScheduler (optional)
 ./lakehouse start dolphinscheduler   # Start DolphinScheduler master, worker, and API server

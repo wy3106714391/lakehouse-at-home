@@ -1,0 +1,54 @@
+# Apache Gravitino - Data Catalog & Metadata Management
+#
+# This provides a unified metadata layer with:
+# - Multi-catalog support (Iceberg, Delta, Hive, MySQL, PostgreSQL, etc.)
+# - Fine-grained authorization and access control
+# - REST API for metadata operations
+# - Iceberg REST Catalog compatibility
+# - Credential vending for secure storage access
+#
+# Usage:
+#   docker compose -f docker-compose-gravitino.yml up -d
+#
+# Then configure Spark to use Gravitino REST endpoint:
+#   spark.sql.catalog.iceberg.uri = http://localhost:8091/iceberg/v1/lakehouse
+
+services:
+  gravitino:
+    image: apache/gravitino:0.6.0
+    container_name: gravitino
+    ports:
+      - "8090:8090"      # Gravitino REST API
+      - "8091:8091"      # Iceberg REST Catalog
+      - "9090:9090"      # Metrics endpoint
+    environment:
+      - GRAVITINO_HOME=/app
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - SEAWEEDFS_ACCESS_KEY=${SEAWEEDFS_ACCESS_KEY:-your_access_key}
+      - SEAWEEDFS_SECRET_KEY=${SEAWEEDFS_SECRET_KEY:-your_secret_key}
+      - JAVA_OPTS=-Xmx2g -Xms1g
+    volumes:
+      - ./config/gravitino/gravitino.properties:/app/conf/gravitino.properties
+      - gravitino-logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - lakehouse-network
+
+volumes:
+  gravitino-logs:
+    driver: local
+
+networks:
+  lakehouse-network:
+    external: true
