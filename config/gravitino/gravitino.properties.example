@@ -1,0 +1,108 @@
+# Apache Gravitino - Data Catalog & Metadata Management
+# 
+# Gravitino is a high-performance, geo-distributed, and federated metadata lake.
+# It manages the metadata directly in different sources, types, and regions of the data lakes.
+#
+# Documentation: https://gravitino.apache.org/docs/
+
+# ============================================================================
+# Server Configuration
+# ============================================================================
+
+# Gravitino server name
+gravitino.server.name=gravitino
+
+# Server listening port
+gravitino.server.port=8090
+
+# Server bind address
+gravitino.server.bindAddress=0.0.0.0
+
+# ============================================================================
+# Storage Backend Configuration
+# ============================================================================
+# Using PostgreSQL for production-grade metadata storage
+
+gravitino.storage.backend=jdbc
+
+# PostgreSQL connection settings
+gravitino.jdbc.driver=org.postgresql.Driver
+gravitino.jdbc.url=jdbc:postgresql://postgres:5432/gravitino
+gravitino.jdbc.username=postgres
+gravitino.jdbc.password=${POSTGRES_PASSWORD:-postgres}
+
+# Connection pool settings
+gravitino.jdbc.maximumPoolSize=20
+gravitino.jdbc.minimumIdle=5
+gravitino.jdbc.connectionTimeout=30000
+gravitino.jdbc.idleTimeout=600000
+gravitino.jdbc.maxLifetime=1800000
+
+# ============================================================================
+# Authentication Configuration
+# ============================================================================
+# Simple authentication for local development
+# For production, enable OAuth2/OIDC or Kerberos
+
+gravitino.authenticator=simple
+
+# Admin user for initial setup
+gravitino.admin.user=admin
+gravitino.admin.password=admin123
+
+# Token expiration time (seconds)
+gravitino.authentication.token.expirationInSecs=86400
+
+# ============================================================================
+# Authorization Configuration
+# ============================================================================
+# Enable fine-grained authorization
+
+gravitino.authorizer.simple.allowAll=false
+
+# ============================================================================
+# Fileset Configuration (for Iceberg tables on S3/SeaweedFS)
+# ============================================================================
+# Configure storage locations for managed filesets
+
+# Default storage location (SeaweedFS S3-compatible)
+gravitino.fileset.defaultStoragePath=s3://lakehouse/warehouse
+
+# S3 configuration for fileset access
+gravitino.s3.endpoint=http://seaweedfs:8333
+gravitino.s3.region=us-east-1
+gravitino.s3.accessKey=${SEAWEEDFS_ACCESS_KEY:-your_access_key}
+gravitino.s3.secretKey=${SEAWEEDFS_SECRET_KEY:-your_secret_key}
+
+# ============================================================================
+# Iceberg REST Catalog Configuration
+# ============================================================================
+# Expose Iceberg REST API through Gravitino
+
+gravitino.iceberg.rest.enabled=true
+gravitino.iceberg.rest.port=8091
+
+# Warehouse root for Iceberg tables
+gravitino.iceberg.warehouse=s3://lakehouse/warehouse
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+gravitino.log.level=INFO
+gravitino.log.path=/app/logs
+gravitino.log.maxFileSize=100MB
+gravitino.log.maxHistory=30
+gravitino.log.totalSizeCap=3GB
+
+# ============================================================================
+# Advanced Settings
+# ============================================================================
+# JVM heap size
+gravitino.jvm.heapMax=2g
+
+# Request timeout
+gravitino.server.requestTimeout=60s
+
+# Enable metrics
+gravitino.metrics.enabled=true
+gravitino.metrics.port=9090
